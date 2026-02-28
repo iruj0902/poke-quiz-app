@@ -32,7 +32,6 @@ st.markdown("""
 
 # --- データ取得関数 ---
 def get_pokemon_data(zukan_number):
-def get_pokemon_data(zukan_number):
     """
     公式サイトのデータAPIから直接情報を取得する
     """
@@ -59,7 +58,7 @@ def get_pokemon_data(zukan_number):
         # 万が一エラーが出た場合のログ
         st.error(f"データの取得に失敗しました (No.{zukan_number})")
         return None
-         
+
 # --- セッション状態の初期化 ---
 if 'stage' not in st.session_state:
     st.session_state.stage = 'start' # start, playing, finished
