@@ -16,21 +16,9 @@ TYPE_MAP = {
 # --- ページ設定 ---
 st.set_page_config(page_title="ポケモン クイズマスター", layout="centered")
 
-# --- カスタムCSS（iPad向け・小学生向けにボタンを大きくカラフルに） ---
+# --- カスタムCSS（基本サイズとレイアウト調整） ---
 st.markdown("""
     <style>
-    /* スタート画面のボタンの色を分ける */
-    div[data-testid="column"]:nth-of-type(1) button {
-        background-color: #ff4b4b !important; /* 赤色 */
-        color: white !important;
-        border: none;
-    }
-    div[data-testid="column"]:nth-of-type(2) button {
-        background-color: #1f77b4 !important; /* 青色 */
-        color: white !important;
-        border: none;
-    }
-    /* すべてのボタンの基本サイズ調整 */
     .stButton>button {
         height: 80px;
         font-size: 24px !important;
@@ -57,10 +45,21 @@ st.markdown("""
         font-size: 20px;
         font-weight: bold;
     }
+    /* 結果発表画面の画像用 */
+    .result-image-container {
+        text-align: center;
+        margin: 20px 0;
+        animation: fadeIn 0.5s;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- データ取得関数 ---
+# --- 🌟 データ取得関数（キャッシュ化して爆速にする） ---
+@st.cache_data(show_spinner=False)
 def get_pokemon_data(zukan_number):
     formatted_number = str(zukan_number).zfill(4)
     url = f"https://zukan.pokemon.co.jp/detail/{formatted_number}"
@@ -79,7 +78,6 @@ def get_pokemon_data(zukan_number):
             data = json.loads(script_tag.string)
             pokemon_info = data.get('pokemon', {})
             
-            # 🌟 番号を日本語のタイプ名に変換する処理
             type1_id = str(pokemon_info.get('type_1', ''))
             type2_id = str(pokemon_info.get('type_2', ''))
             
@@ -109,7 +107,7 @@ def get_pokemon_data(zukan_number):
 
 # --- セッション状態の初期化 ---
 if 'stage' not in st.session_state:
-    st.session_state.stage = 'start'
+    st.session_state.stage = 'start' # start, playing, result, finished に状態を分けます
 if 'questions' not in st.session_state:
     st.session_state.questions = []
 if 'current_idx' not in st.session_state:
@@ -118,6 +116,11 @@ if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'hints_shown' not in st.session_state:
     st.session_state.hints_shown = 0
+# 新しく追加する状態
+if 'is_correct' not in st.session_state:
+    st.session_state.is_correct = False
+if 'earned_points' not in st.session_state:
+    st.session_state.earned_points = 0
 
 # --- メインロジック ---
 st.title("🔴 ポケモン クイズマスター ⚪")
@@ -127,8 +130,8 @@ if st.session_state.stage == 'start':
     st.write("### 何問 挑戦（ちょうせん）する？")
     col1, col2 = st.columns(2)
     
-    # 🌟 use_container_width=True でボタンを横幅いっぱいにする
-    if col1.button("5問", use_container_width=True):
+    # type="primary" で赤色などの目立つ色にする
+    if col1.button("5問", use_container_width=True, type="primary"):
         st.session_state.target_numbers = random.sample(range(1, 1025), 5)
         st.session_state.stage = 'playing'
         st.rerun()
@@ -138,27 +141,26 @@ if st.session_state.stage == 'start':
         st.session_state.stage = 'playing'
         st.rerun()
 
-# 2. クイズ画面
+# 2. クイズ画面（問題出題中）
 elif st.session_state.stage == 'playing':
     idx = st.session_state.current_idx
     total = len(st.session_state.target_numbers)
     
     zukan_num = st.session_state.target_numbers[idx]
-    pokemon = get_pokemon_data(zukan_num)
+    pokemon = get_pokemon_data(zukan_num) # キャッシュが効くので一瞬で取得！
     
     if pokemon is None:
         st.error("ごめんね、このポケモンのデータをうまく取れなかったみたい。")
-        if st.button("トップに戻ってやり直す", use_container_width=True):
-            st.session_state.stage = 'start'
+        if st.button("次の問題へスキップ", use_container_width=True):
+            st.session_state.current_idx += 1
             st.rerun()
         st.stop()
 
-    st.write(f"### 第 {idx + 1} 問 / 全 {total} 問")
+    # 右上に現在のスコアを表示
+    st.write(f"### 第 {idx + 1} 問 / 全 {total} 問  (現在のスコア: {st.session_state.score}点)")
     
-    # 説明文のマスキング
     masked_desc = pokemon['description'].replace(pokemon['name'], "〇〇〇")
     
-    # 基本情報の表示
     st.markdown(f"""
     <div class="question-box">
         <p class="pokemon-info"><strong>【ぶんるい】</strong>: {pokemon['category']}</p>
@@ -167,19 +169,18 @@ elif st.session_state.stage == 'playing':
     </div>
     """, unsafe_allow_html=True)
     
-    # --- ヒント機能 ---
     st.write("---")
     
+    # ヒント機能
     if st.session_state.hints_shown == 0:
-        if st.button("💡 1つめのヒントをみる（タイプ）", use_container_width=True):
+        if st.button("💡 1つめのヒント（タイプ）を見る", use_container_width=True):
             st.session_state.hints_shown = 1
             st.rerun()
             
     if st.session_state.hints_shown >= 1:
         st.markdown(f'<div class="hint-box">【タイプ】: {pokemon["types"]}</div>', unsafe_allow_html=True)
-        
         if st.session_state.hints_shown == 1:
-            if st.button("💡 2つめのヒントをみる（なまえの最初）", use_container_width=True):
+            if st.button("💡 2つめのヒント（なまえの最初）を見る", use_container_width=True):
                 st.session_state.hints_shown = 2
                 st.rerun()
                 
@@ -187,9 +188,8 @@ elif st.session_state.stage == 'playing':
         name_len = len(pokemon['name'])
         hint2_text = pokemon['name'][0] + "〇" * (name_len - 1)
         st.markdown(f'<div class="hint-box">【なまえ】: {hint2_text}</div>', unsafe_allow_html=True)
-        
         if st.session_state.hints_shown == 2:
-            if st.button("💡 3つめのヒントをみる（シルエット）", use_container_width=True):
+            if st.button("💡 3つめのヒント（シルエット）を見る", use_container_width=True):
                 st.session_state.hints_shown = 3
                 st.rerun()
 
@@ -206,32 +206,61 @@ elif st.session_state.stage == 'playing':
     # 解答入力
     user_answer = st.text_input("ポケモンの 名前を いれてね！", key=f"ans_{idx}").strip()
     
-    if st.button("これだ！ (判定)", use_container_width=True):
+    if st.button("これだ！ (判定)", use_container_width=True, type="primary"):
         if user_answer == pokemon['name']:
-            st.balloons()
-            st.success("せいかい！ すごいぞ！")
-            st.image(pokemon['image_url'], width=200)
-            st.session_state.score += 1
+            st.session_state.is_correct = True
+            # 🌟 ヒントの数に応じてポイント計算（4 - ヒント数）
+            st.session_state.earned_points = 4 - st.session_state.hints_shown
+            st.session_state.score += st.session_state.earned_points
         else:
-            st.error(f"ざんねん！ こたえは 「{pokemon['name']}」 だよ。")
-            st.image(pokemon['image_url'], width=200)
+            st.session_state.is_correct = False
+            st.session_state.earned_points = 0
             
-        time.sleep(3)
-        
-        if idx + 1 < total:
-            st.session_state.current_idx += 1
-            st.session_state.hints_shown = 0
-            st.rerun()
-        else:
-            st.session_state.stage = 'finished'
-            st.rerun()
+        # 結果発表画面へ移動
+        st.session_state.stage = 'result'
+        st.rerun()
 
-# 3. 終了画面
-elif st.session_state.stage == 'finished':
-    st.write("## 終了（しゅうりょう）！")
-    st.write(f"### きみの スコアは {st.session_state.score} / {len(st.session_state.target_numbers)} 点だったよ！")
+# 3. 🌟 新設：結果発表ポップアップ画面
+elif st.session_state.stage == 'result':
+    idx = st.session_state.current_idx
+    zukan_num = st.session_state.target_numbers[idx]
+    pokemon = get_pokemon_data(zukan_num)
     
-    if st.button("もういちど あそぶ", use_container_width=True):
+    if st.session_state.is_correct:
+        st.balloons()
+        st.success(f"大せいかい！！ ✨ {st.session_state.earned_points} 点 ゲットだぜ！")
+    else:
+        st.error(f"ざんねん！ こたえは 「{pokemon['name']}」 だよ。")
+
+    # 画像を画面の中央に大きく表示
+    st.markdown(f"""
+        <div class="result-image-container">
+            <img src="{pokemon['image_url']}" style="width: 350px; max-width: 100%;">
+            <h2 style="color: #333;">{pokemon['name']}</h2>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # お子様が画像を見るための待機時間（3秒）
+    time.sleep(3)
+    
+    # 次の問題、または終了画面へ自動移行
+    if idx + 1 < len(st.session_state.target_numbers):
+        st.session_state.current_idx += 1
+        st.session_state.hints_shown = 0
+        st.session_state.stage = 'playing'
+        st.rerun()
+    else:
+        st.session_state.stage = 'finished'
+        st.rerun()
+
+# 4. 終了画面
+elif st.session_state.stage == 'finished':
+    max_score = len(st.session_state.target_numbers) * 4
+    
+    st.write("## 終了（しゅうりょう）！")
+    st.info(f"### きみの さいしゅうスコアは...  {st.session_state.score} / {max_score} 点！！")
+    
+    if st.button("もういちど あそぶ", use_container_width=True, type="primary"):
         st.session_state.stage = 'start'
         st.session_state.current_idx = 0
         st.session_state.score = 0
