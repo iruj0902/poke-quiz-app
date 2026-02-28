@@ -32,37 +32,34 @@ st.markdown("""
 
 # --- データ取得関数 ---
 def get_pokemon_data(zukan_number):
+def get_pokemon_data(zukan_number):
     """
-    指定された図鑑番号のポケモン情報を公式サイトから取得
+    公式サイトのデータAPIから直接情報を取得する
     """
-    # 4桁の文字列に変換（例: 1 -> 0001）
     formatted_number = str(zukan_number).zfill(4)
-    url = f"https://zukan.pokemon.co.jp/detail/{formatted_number}"
+    # 公式サイトが内部で利用しているJSONデータのURL
+    url = f"https://zukan.pokemon.co.jp/zukan-api/api/v1/pokemon/{formatted_number}/"
     
     try:
         response = requests.get(url)
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # JSON形式でデータを読み込む
+        data = response.json()
         
-        # サイトの構造に合わせて抽出（※サイト仕様変更により調整が必要な場合があります）
-        # JSONデータが埋め込まれていることが多いため、簡易的なパース例
-        name = soup.find('p', class_='pokemon-slider__name')
-        # 実際には公式サイトはJavaScriptで動的に描写されるため、
-        # ここでは開発用として「取得失敗時のダミー」も考慮したロジックにしています
-        
-        # 注意: 公式サイトは動的コンテンツのため、BeautifulSoupのみでは取得が難しい場合があります。
-        # 本来はAPIエンドポイントを叩くか、Selenium/Playwrightを検討しますが、
-        # ここではプロトタイプとして「名前・分類・説明」の構造を定義します。
+        # 必要な情報を抽出
+        # ポケモン名は 'pokemon' キーの中にある
+        pokemon_info = data.get('pokemon', {})
         
         return {
-            "name": name.text.strip() if name else "フシギダネ", # 仮の取得例
-            "category": "たねポケモン",
-            "height": "0.7m",
-            "description": "生まれたときから 背中に 植物の タネが あって 少しずつ 大きく 育つ。"
+            "name": pokemon_info.get('name', "不明なポケモン"),
+            "category": pokemon_info.get('category', "？？？ポケモン"),
+            "height": f"{pokemon_info.get('height', 0)}m",
+            "description": pokemon_info.get('description', "データが見つかりませんでした。")
         }
     except Exception as e:
+        # 万が一エラーが出た場合のログ
+        st.error(f"データの取得に失敗しました (No.{zukan_number})")
         return None
-
+         
 # --- セッション状態の初期化 ---
 if 'stage' not in st.session_state:
     st.session_state.stage = 'start' # start, playing, finished
