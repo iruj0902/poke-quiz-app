@@ -87,11 +87,15 @@ def get_pokemon_data(zukan_number):
 # --- セッション状態の初期化 ---
 if 'stage' not in st.session_state:
     st.session_state.stage = 'start'
+if 'questions' not in st.session_state:
     st.session_state.questions = []
+if 'current_idx' not in st.session_state:
     st.session_state.current_idx = 0
+if 'score' not in st.session_state:
     st.session_state.score = 0
-    st.session_state.hints_shown = 0 # ヒントの進行度（0〜3）
-
+if 'hints_shown' not in st.session_state:
+    st.session_state.hints_shown = 0
+    
 # --- メインロジック ---
 st.title("🔴 ポケモン クイズマスター ⚪")
 
