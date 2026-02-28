@@ -2,8 +2,8 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import random
-import time
 import json
+import pandas as pd  # 🌟 成績表を作るために追加
 
 # --- タイプ変換用の辞書 ---
 TYPE_MAP = {
@@ -16,7 +16,7 @@ TYPE_MAP = {
 # --- ページ設定 ---
 st.set_page_config(page_title="ポケモン クイズマスター", layout="centered")
 
-# --- カスタムCSS（基本サイズとレイアウト調整） ---
+# --- カスタムCSS ---
 st.markdown("""
     <style>
     .stButton>button {
@@ -45,7 +45,6 @@ st.markdown("""
         font-size: 20px;
         font-weight: bold;
     }
-    /* 結果発表画面の画像用 */
     .result-image-container {
         text-align: center;
         margin: 20px 0;
@@ -58,7 +57,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 🌟 データ取得関数（キャッシュ化して爆速にする） ---
+# --- データ取得関数 ---
 @st.cache_data(show_spinner=False)
 def get_pokemon_data(zukan_number):
     formatted_number = str(zukan_number).zfill(4)
@@ -107,7 +106,7 @@ def get_pokemon_data(zukan_number):
 
 # --- セッション状態の初期化 ---
 if 'stage' not in st.session_state:
-    st.session_state.stage = 'start' # start, playing, result, finished に状態を分けます
+    st.session_state.stage = 'start'
 if 'questions' not in st.session_state:
     st.session_state.questions = []
 if 'current_idx' not in st.session_state:
@@ -116,11 +115,12 @@ if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'hints_shown' not in st.session_state:
     st.session_state.hints_shown = 0
-# 新しく追加する状態
 if 'is_correct' not in st.session_state:
     st.session_state.is_correct = False
 if 'earned_points' not in st.session_state:
     st.session_state.earned_points = 0
+if 'history' not in st.session_state:
+    st.session_state.history = [] # 🌟 履歴保存用のリストを追加
 
 # --- メインロジック ---
 st.title("🔴 ポケモン クイズマスター ⚪")
@@ -130,7 +130,6 @@ if st.session_state.stage == 'start':
     st.write("### 何問 挑戦（ちょうせん）する？")
     col1, col2 = st.columns(2)
     
-    # type="primary" で赤色などの目立つ色にする
     if col1.button("5問", use_container_width=True, type="primary"):
         st.session_state.target_numbers = random.sample(range(1, 1025), 5)
         st.session_state.stage = 'playing'
@@ -147,7 +146,7 @@ elif st.session_state.stage == 'playing':
     total = len(st.session_state.target_numbers)
     
     zukan_num = st.session_state.target_numbers[idx]
-    pokemon = get_pokemon_data(zukan_num) # キャッシュが効くので一瞬で取得！
+    pokemon = get_pokemon_data(zukan_num)
     
     if pokemon is None:
         st.error("ごめんね、このポケモンのデータをうまく取れなかったみたい。")
@@ -156,7 +155,6 @@ elif st.session_state.stage == 'playing':
             st.rerun()
         st.stop()
 
-    # 右上に現在のスコアを表示
     st.write(f"### 第 {idx + 1} 問 / 全 {total} 問  (現在のスコア: {st.session_state.score}点)")
     
     masked_desc = pokemon['description'].replace(pokemon['name'], "〇〇〇")
@@ -207,22 +205,32 @@ elif st.session_state.stage == 'playing':
     user_answer = st.text_input("ポケモンの 名前を いれてね！", key=f"ans_{idx}").strip()
     
     if st.button("これだ！ (判定)", use_container_width=True, type="primary"):
-        if user_answer == pokemon['name']:
-            st.session_state.is_correct = True
-            # 🌟 ヒントの数に応じてポイント計算（4 - ヒント数）
-            st.session_state.earned_points = 4 - st.session_state.hints_shown
-            st.session_state.score += st.session_state.earned_points
-        else:
-            st.session_state.is_correct = False
-            st.session_state.earned_points = 0
+        # 🌟 ここで履歴を保存する処理を追加
+        is_correct = (user_answer == pokemon['name'])
+        earned_points = (4 - st.session_state.hints_shown) if is_correct else 0
+        
+        # 表に出すためのデータを記録
+        st.session_state.history.append({
+            "問題": f"第{idx + 1}問",
+            "あなたのこたえ": user_answer if user_answer else "（むかいとう）",
+            "せいかい": pokemon['name'],
+            "はんてい": "⭕️" if is_correct else "❌",
+            "ゲット": f"{earned_points} 点"
+        })
+        
+        st.session_state.is_correct = is_correct
+        st.session_state.earned_points = earned_points
+        if is_correct:
+            st.session_state.score += earned_points
             
         # 結果発表画面へ移動
         st.session_state.stage = 'result'
         st.rerun()
 
-# 3. 🌟 新設：結果発表ポップアップ画面
+# 3. 結果発表ポップアップ画面
 elif st.session_state.stage == 'result':
     idx = st.session_state.current_idx
+    total = len(st.session_state.target_numbers)
     zukan_num = st.session_state.target_numbers[idx]
     pokemon = get_pokemon_data(zukan_num)
     
@@ -232,7 +240,6 @@ elif st.session_state.stage == 'result':
     else:
         st.error(f"ざんねん！ こたえは 「{pokemon['name']}」 だよ。")
 
-    # 画像を画面の中央に大きく表示
     st.markdown(f"""
         <div class="result-image-container">
             <img src="{pokemon['image_url']}" style="width: 350px; max-width: 100%;">
@@ -240,18 +247,19 @@ elif st.session_state.stage == 'result':
         </div>
     """, unsafe_allow_html=True)
     
-    # お子様が画像を見るための待機時間（3秒）
-    time.sleep(3)
+    st.write("---")
     
-    # 次の問題、または終了画面へ自動移行
-    if idx + 1 < len(st.session_state.target_numbers):
-        st.session_state.current_idx += 1
-        st.session_state.hints_shown = 0
-        st.session_state.stage = 'playing'
-        st.rerun()
+    # 🌟 自動スキップ（time.sleep）をやめて、ボタンで手動で次に進むように変更
+    if idx + 1 < total:
+        if st.button("▶ 次の もんだい へ！", use_container_width=True, type="primary"):
+            st.session_state.current_idx += 1
+            st.session_state.hints_shown = 0
+            st.session_state.stage = 'playing'
+            st.rerun()
     else:
-        st.session_state.stage = 'finished'
-        st.rerun()
+        if st.button("🏆 けっか はっぴょう を見る！", use_container_width=True, type="primary"):
+            st.session_state.stage = 'finished'
+            st.rerun()
 
 # 4. 終了画面
 elif st.session_state.stage == 'finished':
@@ -260,9 +268,18 @@ elif st.session_state.stage == 'finished':
     st.write("## 終了（しゅうりょう）！")
     st.info(f"### きみの さいしゅうスコアは...  {st.session_state.score} / {max_score} 点！！")
     
+    # 🌟 成績表（データフレーム）の表示
+    st.write("### 📝 今回の せいせきひょう")
+    df_history = pd.DataFrame(st.session_state.history)
+    # st.table を使うと、iPadでもスクロールなしで綺麗に表が見えます
+    st.table(df_history)
+    
+    st.write("---")
+    
     if st.button("もういちど あそぶ", use_container_width=True, type="primary"):
         st.session_state.stage = 'start'
         st.session_state.current_idx = 0
         st.session_state.score = 0
         st.session_state.hints_shown = 0
+        st.session_state.history = [] # 履歴もリセット
         st.rerun()
