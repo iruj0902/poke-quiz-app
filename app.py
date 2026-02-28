@@ -3,7 +3,8 @@ import requests
 from bs4 import BeautifulSoup
 import random
 import json
-import pandas as pd  # 🌟 成績表を作るために追加
+import pandas as pd
+import streamlit.components.v1 as components # 🌟 スクロール制御のために追加
 
 # --- タイプ変換用の辞書 ---
 TYPE_MAP = {
@@ -12,6 +13,17 @@ TYPE_MAP = {
     "11": "エスパー", "12": "むし", "13": "いわ", "14": "ゴースト", "15": "ドラゴン",
     "16": "あく", "17": "はがね", "18": "フェアリー"
 }
+
+# --- 🌟 画面の一番上へスクロールさせる関数 ---
+def scroll_to_top():
+    js = '''
+    <script>
+        const elements = window.parent.document.querySelectorAll('.main, [data-testid="stAppViewContainer"], .stApp');
+        elements.forEach(e => e.scrollTo({top: 0}));
+    </script>
+    '''
+    # 画面に見えない形でJavaScriptを実行
+    components.html(js, height=0, width=0)
 
 # --- ページ設定 ---
 st.set_page_config(page_title="ポケモン クイズマスター", layout="centered")
@@ -47,8 +59,14 @@ st.markdown("""
     }
     .result-image-container {
         text-align: center;
-        margin: 20px 0;
+        /* 🌟 画像上下の余白を削ってボタンを上に詰める */
+        margin: 5px 0; 
         animation: fadeIn 0.5s;
+    }
+    .result-image-container h2 {
+        margin-top: 5px;
+        margin-bottom: 10px;
+        color: #333;
     }
     @keyframes fadeIn {
         from { opacity: 0; transform: scale(0.9); }
@@ -120,7 +138,7 @@ if 'is_correct' not in st.session_state:
 if 'earned_points' not in st.session_state:
     st.session_state.earned_points = 0
 if 'history' not in st.session_state:
-    st.session_state.history = [] # 🌟 履歴保存用のリストを追加
+    st.session_state.history = []
 
 # --- メインロジック ---
 st.title("🔴 ポケモン クイズマスター ⚪")
@@ -142,6 +160,8 @@ if st.session_state.stage == 'start':
 
 # 2. クイズ画面（問題出題中）
 elif st.session_state.stage == 'playing':
+    scroll_to_top() # 🌟 画面切り替え時に一番上へ
+    
     idx = st.session_state.current_idx
     total = len(st.session_state.target_numbers)
     
@@ -169,7 +189,6 @@ elif st.session_state.stage == 'playing':
     
     st.write("---")
     
-    # ヒント機能
     if st.session_state.hints_shown == 0:
         if st.button("💡 1つめのヒント（タイプ）を見る", use_container_width=True):
             st.session_state.hints_shown = 1
@@ -195,21 +214,18 @@ elif st.session_state.stage == 'playing':
         st.write("【シルエット】")
         st.markdown(f"""
             <div style="text-align: center; background-color: white; border-radius: 15px; padding: 10px;">
-                <img src="{pokemon['image_url']}" style="width: 250px; filter: brightness(0%);">
+                <img src="{pokemon['image_url']}" style="width: 200px; filter: brightness(0%);">
             </div>
         """, unsafe_allow_html=True)
         
     st.write("---")
     
-    # 解答入力
     user_answer = st.text_input("ポケモンの 名前を いれてね！", key=f"ans_{idx}").strip()
     
     if st.button("これだ！ (判定)", use_container_width=True, type="primary"):
-        # 🌟 ここで履歴を保存する処理を追加
         is_correct = (user_answer == pokemon['name'])
         earned_points = (4 - st.session_state.hints_shown) if is_correct else 0
         
-        # 表に出すためのデータを記録
         st.session_state.history.append({
             "問題": f"第{idx + 1}問",
             "あなたのこたえ": user_answer if user_answer else "（むかいとう）",
@@ -223,12 +239,13 @@ elif st.session_state.stage == 'playing':
         if is_correct:
             st.session_state.score += earned_points
             
-        # 結果発表画面へ移動
         st.session_state.stage = 'result'
         st.rerun()
 
 # 3. 結果発表ポップアップ画面
 elif st.session_state.stage == 'result':
+    scroll_to_top() # 🌟 画面切り替え時に一番上へ
+    
     idx = st.session_state.current_idx
     total = len(st.session_state.target_numbers)
     zukan_num = st.session_state.target_numbers[idx]
@@ -240,16 +257,14 @@ elif st.session_state.stage == 'result':
     else:
         st.error(f"ざんねん！ こたえは 「{pokemon['name']}」 だよ。")
 
+    # 🌟 画像サイズを220pxに縮小し、スクロールなしでボタンが見えるように調整
     st.markdown(f"""
         <div class="result-image-container">
-            <img src="{pokemon['image_url']}" style="width: 350px; max-width: 100%;">
-            <h2 style="color: #333;">{pokemon['name']}</h2>
+            <img src="{pokemon['image_url']}" style="width: 220px; max-width: 100%;">
+            <h2>{pokemon['name']}</h2>
         </div>
     """, unsafe_allow_html=True)
     
-    st.write("---")
-    
-    # 🌟 自動スキップ（time.sleep）をやめて、ボタンで手動で次に進むように変更
     if idx + 1 < total:
         if st.button("▶ 次の もんだい へ！", use_container_width=True, type="primary"):
             st.session_state.current_idx += 1
@@ -263,15 +278,15 @@ elif st.session_state.stage == 'result':
 
 # 4. 終了画面
 elif st.session_state.stage == 'finished':
+    scroll_to_top() # 🌟 画面切り替え時に一番上へ
+    
     max_score = len(st.session_state.target_numbers) * 4
     
     st.write("## 終了（しゅうりょう）！")
     st.info(f"### きみの さいしゅうスコアは...  {st.session_state.score} / {max_score} 点！！")
     
-    # 🌟 成績表（データフレーム）の表示
     st.write("### 📝 今回の せいせきひょう")
     df_history = pd.DataFrame(st.session_state.history)
-    # st.table を使うと、iPadでもスクロールなしで綺麗に表が見えます
     st.table(df_history)
     
     st.write("---")
@@ -281,5 +296,5 @@ elif st.session_state.stage == 'finished':
         st.session_state.current_idx = 0
         st.session_state.score = 0
         st.session_state.hints_shown = 0
-        st.session_state.history = [] # 履歴もリセット
+        st.session_state.history = [] 
         st.rerun()
