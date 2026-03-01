@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import random
 import json
 import pandas as pd
-import streamlit.components.v1 as components # 🌟 スクロール制御のために追加
+import streamlit.components.v1 as components
 
 # --- タイプ変換用の辞書 ---
 TYPE_MAP = {
@@ -14,7 +14,7 @@ TYPE_MAP = {
     "16": "あく", "17": "はがね", "18": "フェアリー"
 }
 
-# --- 🌟 画面の一番上へスクロールさせる関数 ---
+# --- 画面の一番上へスクロールさせる関数 ---
 def scroll_to_top():
     js = '''
     <script>
@@ -22,8 +22,109 @@ def scroll_to_top():
         elements.forEach(e => e.scrollTo({top: 0}));
     </script>
     '''
-    # 画面に見えない形でJavaScriptを実行
     components.html(js, height=0, width=0)
+
+# --- 🌟 進化の段階を判定する関数を追加 ---
+def get_evolution_stage(zukan_number):
+    try:
+        # PokeAPIを使ってポケモンの進化ツリー（つながり）を取得
+        species_url = f"https://pokeapi.co/api/v2/pokemon-species/{int(zukan_number)}/"
+        res_species = requests.get(species_url).json()
+        chain_url = res_species['evolution_chain']['url']
+        
+        res_chain = requests.get(chain_url).json()
+        chain = res_chain['chain']
+        
+        # URLから図鑑番号を取り出すおまじない
+        def get_id(species_dict):
+            return int(species_dict['url'].rstrip('/').split('/')[-1])
+            
+        base_id = get_id(chain['species']) # 一番最初のポケモン（タネ）
+        stage1_nodes = chain['evolves_to'] # 1回進化した姿のリスト
+        
+        stage2_nodes = [] # 2回進化した姿のリスト
+        for node in stage1_nodes:
+            stage2_nodes.extend(node['evolves_to'])
+            
+        # その進化ラインが「最大で何段階か」を判定
+        if len(stage1_nodes) == 0:
+            return "進化なし"
+        elif len(stage2_nodes) == 0:
+            line_type = "1進化"
+        else:
+            line_type = "2進化"
+            
+        target_id = int(zukan_number)
+        
+        # 今回のポケモンがツリーのどこにいるかを探して文字列を返す
+        if target_id == base_id:
+            return f"{line_type}のタネポケモン"
+            
+        for node in stage1_nodes:
+            if get_id(node['species']) == target_id:
+                if line_type == "1進化":
+                    return "1進化の進化後"
+                else:
+                    return "2進化の1進化ポケモン"
+                    
+        for node in stage2_nodes:
+            if get_id(node['species']) == target_id:
+                return "2進化の2進化ポケモン"
+                
+        return "進化じょうほう ふめい"
+    except Exception:
+        return "進化じょうほう ふめい"
+
+# --- データ取得関数 ---
+@st.cache_data(show_spinner=False)
+def get_pokemon_data(zukan_number):
+    formatted_number = str(zukan_number).zfill(4)
+    url = f"https://zukan.pokemon.co.jp/detail/{formatted_number}"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
+        script_tag = soup.find('script', id='json-data')
+        
+        # 🌟 ここで先ほど作った進化判定関数を呼び出す
+        evo_stage = get_evolution_stage(zukan_number)
+        
+        if script_tag:
+            data = json.loads(script_tag.string)
+            pokemon_info = data.get('pokemon', {})
+            
+            type1_id = str(pokemon_info.get('type_1', ''))
+            type2_id = str(pokemon_info.get('type_2', ''))
+            
+            type1_name = TYPE_MAP.get(type1_id, "")
+            type2_name = TYPE_MAP.get(type2_id, "")
+            
+            types = type1_name
+            if type2_name:
+                types += f"、{type2_name}"
+            if not types:
+                types = "？？？"
+                
+            desc = pokemon_info.get('text_1', pokemon_info.get('text_2', "せつめいデータがありません。"))
+            
+            return {
+                "name": pokemon_info.get('name', "不明なポケモン"),
+                "category": pokemon_info.get('bunrui', "？？？ポケモン"),
+                "height": f"{pokemon_info.get('takasa', 0)}m",
+                "description": desc,
+                "types": types,
+                "evolution_stage": evo_stage, # 追加！
+                "image_url": f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{int(zukan_number)}.png"
+            }
+        else:
+            return None
+    except Exception as e:
+        return None
 
 # --- ページ設定 ---
 st.set_page_config(page_title="ポケモン クイズマスター", layout="centered")
@@ -59,7 +160,6 @@ st.markdown("""
     }
     .result-image-container {
         text-align: center;
-        /* 🌟 画像上下の余白を削ってボタンを上に詰める */
         margin: 5px 0; 
         animation: fadeIn 0.5s;
     }
@@ -74,53 +174,6 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
-
-# --- データ取得関数 ---
-@st.cache_data(show_spinner=False)
-def get_pokemon_data(zukan_number):
-    formatted_number = str(zukan_number).zfill(4)
-    url = f"https://zukan.pokemon.co.jp/detail/{formatted_number}"
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers)
-        response.encoding = 'utf-8'
-        soup = BeautifulSoup(response.text, 'html.parser')
-        script_tag = soup.find('script', id='json-data')
-        
-        if script_tag:
-            data = json.loads(script_tag.string)
-            pokemon_info = data.get('pokemon', {})
-            
-            type1_id = str(pokemon_info.get('type_1', ''))
-            type2_id = str(pokemon_info.get('type_2', ''))
-            
-            type1_name = TYPE_MAP.get(type1_id, "")
-            type2_name = TYPE_MAP.get(type2_id, "")
-            
-            types = type1_name
-            if type2_name:
-                types += f"、{type2_name}"
-            if not types:
-                types = "？？？"
-                
-            desc = pokemon_info.get('text_1', pokemon_info.get('text_2', "せつめいデータがありません。"))
-            
-            return {
-                "name": pokemon_info.get('name', "不明なポケモン"),
-                "category": pokemon_info.get('bunrui', "？？？ポケモン"),
-                "height": f"{pokemon_info.get('takasa', 0)}m",
-                "description": desc,
-                "types": types,
-                "image_url": f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{int(zukan_number)}.png"
-            }
-        else:
-            return None
-    except Exception as e:
-        return None
 
 # --- セッション状態の初期化 ---
 if 'stage' not in st.session_state:
@@ -143,7 +196,6 @@ if 'history' not in st.session_state:
 # --- メインロジック ---
 st.title("🔴 ポケモン クイズマスター ⚪")
 
-# 1. スタート画面
 if st.session_state.stage == 'start':
     st.write("### 何問 挑戦（ちょうせん）する？")
     col1, col2 = st.columns(2)
@@ -158,9 +210,8 @@ if st.session_state.stage == 'start':
         st.session_state.stage = 'playing'
         st.rerun()
 
-# 2. クイズ画面（問題出題中）
 elif st.session_state.stage == 'playing':
-    scroll_to_top() # 🌟 画面切り替え時に一番上へ
+    scroll_to_top()
     
     idx = st.session_state.current_idx
     total = len(st.session_state.target_numbers)
@@ -189,13 +240,20 @@ elif st.session_state.stage == 'playing':
     
     st.write("---")
     
+    # 🌟 ヒント1の内容をアップデート（進化情報も表示）
     if st.session_state.hints_shown == 0:
-        if st.button("💡 1つめのヒント（タイプ）を見る", use_container_width=True):
+        if st.button("💡 1つめのヒント（タイプ・進化）を見る", use_container_width=True):
             st.session_state.hints_shown = 1
             st.rerun()
             
     if st.session_state.hints_shown >= 1:
-        st.markdown(f'<div class="hint-box">【タイプ】: {pokemon["types"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'''
+            <div class="hint-box">
+                【タイプ】: {pokemon["types"]}<br>
+                【しんか】: {pokemon["evolution_stage"]}
+            </div>
+        ''', unsafe_allow_html=True)
+        
         if st.session_state.hints_shown == 1:
             if st.button("💡 2つめのヒント（なまえの最初）を見る", use_container_width=True):
                 st.session_state.hints_shown = 2
@@ -205,6 +263,7 @@ elif st.session_state.stage == 'playing':
         name_len = len(pokemon['name'])
         hint2_text = pokemon['name'][0] + "〇" * (name_len - 1)
         st.markdown(f'<div class="hint-box">【なまえ】: {hint2_text}</div>', unsafe_allow_html=True)
+        
         if st.session_state.hints_shown == 2:
             if st.button("💡 3つめのヒント（シルエット）を見る", use_container_width=True):
                 st.session_state.hints_shown = 3
@@ -242,9 +301,8 @@ elif st.session_state.stage == 'playing':
         st.session_state.stage = 'result'
         st.rerun()
 
-# 3. 結果発表ポップアップ画面
 elif st.session_state.stage == 'result':
-    scroll_to_top() # 🌟 画面切り替え時に一番上へ
+    scroll_to_top()
     
     idx = st.session_state.current_idx
     total = len(st.session_state.target_numbers)
@@ -257,7 +315,6 @@ elif st.session_state.stage == 'result':
     else:
         st.error(f"ざんねん！ こたえは 「{pokemon['name']}」 だよ。")
 
-    # 🌟 画像サイズを220pxに縮小し、スクロールなしでボタンが見えるように調整
     st.markdown(f"""
         <div class="result-image-container">
             <img src="{pokemon['image_url']}" style="width: 220px; max-width: 100%;">
@@ -276,9 +333,8 @@ elif st.session_state.stage == 'result':
             st.session_state.stage = 'finished'
             st.rerun()
 
-# 4. 終了画面
 elif st.session_state.stage == 'finished':
-    scroll_to_top() # 🌟 画面切り替え時に一番上へ
+    scroll_to_top()
     
     max_score = len(st.session_state.target_numbers) * 4
     
